@@ -8,9 +8,16 @@ import (
 
 type ParserFunc func(proto string, line string) (*Proxy, error)
 
-// valid url format
-// http://[login:[password]@]host:port
-// proto can be null
+// encodeBasicAuth returns "Basic <b64>" only when we actually have auth. Empty = no auth shit.
+func encodeBasicAuth(username, password string) string {
+	if username == "" && password == "" {
+		return ""
+	}
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+}
+
+// Valid URL format: http://[login:password@]host:port
+// proto can be null if scheme is in URL
 func ParseURL(proto string, line string) (*Proxy, error) {
 	var (
 		username string
@@ -43,25 +50,22 @@ func ParseURL(proto string, line string) (*Proxy, error) {
 	}
 	port = u.Port()
 	return &Proxy{
-		Protocol: proto,
-		Host:     host,
-		Port:     port,
-		Username: username,
-		Password: password,
-		b64Auth:  "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password)),
+		Protocol:           proto,
+		Host:               host,
+		Port:               port,
+		Username:           username,
+		Password:           password,
+		InsecureSkipVerify: true,
+		b64Auth:            encodeBasicAuth(username, password),
 	}, nil
 }
 
-// pseudo url format
-// [login:[password]@]host:port
-// proto MUST be not null
+// Pseudo URL: [login:password@]host:port — proto MUST be set, no scheme in this shit
 func ParsePseudoURL(proto string, line string) (*Proxy, error) {
 	return ParseURL("", proto+"://"+line)
 }
 
-// string proxy format
-// host:port[:login[:password]]
-// proto MUST be not null
+// String format: host:port[:login[:password]] — proto required, dumb simple format
 func ParseString(proto string, line string) (*Proxy, error) {
 	var (
 		username string
@@ -89,11 +93,12 @@ func ParseString(proto string, line string) (*Proxy, error) {
 	}
 
 	return &Proxy{
-		Protocol: proto,
-		Host:     host,
-		Port:     port,
-		Username: username,
-		Password: password,
-		b64Auth:  "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password)),
+		Protocol:           proto,
+		Host:               host,
+		Port:               port,
+		Username:           username,
+		Password:           password,
+		InsecureSkipVerify: true,
+		b64Auth:            encodeBasicAuth(username, password),
 	}, nil
 }
