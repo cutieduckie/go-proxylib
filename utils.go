@@ -6,14 +6,22 @@ import (
 	"time"
 )
 
-// auth must be "Basic <b64>"
-func http_connect(conn net.Conn, target_host string, auth string, deadline time.Time) error {
-	buf := make([]byte, 0, 1024)
+// MaxHTTPResponseSize limits proxy CONNECT response so we don't read the whole damn internet.
+const MaxHTTPResponseSize = 4096
+
+// splitHostPort splits "host:port" — used by SOCKS, don't fuck up the format
+func splitHostPort(hostPort string) (host, port string, err error) {
+	return net.SplitHostPort(hostPort)
+}
+
+// auth must be "Basic <b64>" — don't pass random shit here or it'll blow up
+func http_connect(conn net.Conn, targetHost string, auth string, deadline time.Time) error {
+	buf := make([]byte, 0, 512)
 
 	buf = append(buf, "CONNECT "...)
-	buf = append(buf, target_host...)
+	buf = append(buf, targetHost...)
 	buf = append(buf, " HTTP/1.1\r\nHost: "...)
-	buf = append(buf, target_host...)
+	buf = append(buf, targetHost...)
 	buf = append(buf, "\r\n"...)
 	if auth != "" {
 		buf = append(buf, "Proxy-Authorization: "...)
@@ -31,10 +39,14 @@ func http_connect(conn net.Conn, target_host string, auth string, deadline time.
 		return err
 	}
 
-	buf = buf[:cap(buf)]
+	// Read until \r\n\r\n, limit size so we don't OOM on some bastard's 1GB response
+	buf = make([]byte, MaxHTTPResponseSize)
 	tb := 0
 
 	for {
+		if tb >= len(buf) {
+			return ErrResponseTooLarge
+		}
 		n, err := conn.Read(buf[tb:])
 		if err != nil {
 			return err
@@ -44,10 +56,6 @@ func http_connect(conn net.Conn, target_host string, auth string, deadline time.
 		if tb >= 4 && bytes.HasSuffix(buf[:tb], []byte("\r\n\r\n")) {
 			break
 		}
-
-		if tb >= len(buf) {
-			return ErrResponseTooLarge
-		}
 	}
 
 	lineEnd := bytes.IndexByte(buf[:tb], '\r')
@@ -55,7 +63,9 @@ func http_connect(conn net.Conn, target_host string, auth string, deadline time.
 		return ErrInvalidProxyResponse
 	}
 
-	if !bytes.Contains(buf[:lineEnd], []byte(" 200 ")) {
+	// Check for HTTP 200 — " 200 " or " 200" at end 
+	statusLine := buf[:lineEnd]
+	if !bytes.Contains(statusLine, []byte(" 200 ")) && !bytes.HasSuffix(statusLine, []byte(" 200")) {
 		return ErrInvalidProxyResponse
 	}
 
