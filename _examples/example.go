@@ -9,90 +9,100 @@ import (
 )
 
 /*
-this is proxies.txt file
-content example with
-invalid proxies
+proxies.txt — supported formats (don't fuck up the format):
 
-187.214.66.321:999
-11.55.432.42:8080
-102.210.105.351:83
-131.257.91.113:999
-45.22.299.127:8888
-80.913.106.129:8081
-195.142.258.190:8080
-103.54.811.152:8085
+  HTTP/HTTPS:
+    http://host:port
+    http://user:pass@host:port
+    host:port
+    host:port:user:pass
+
+  SOCKS5:
+    socks5://host:port
+    socks5://user:pass@host:port
+
+  SOCKS4/SOCKS4a:
+    socks4://host:port
+    socks4a://host:port
+
+For mixed list use ParseURL (scheme from URL). For single-type shit use ParseString with protocol.
 */
 
 func main() {
-	proxies, err := proxylib.LoadFromFile("proxies.txt", proxylib.HTTP, proxylib.ParseString)
-	// if parsed proxy list length == 0
-	// nil slice will be returned
+	// ParseURL — for full URLs (http://, socks5://, socks4://...)
+	// host:port format? Use LoadFromFile(..., proxylib.HTTP, proxylib.ParseString) you lazy fuck
+	proxies, err := proxylib.LoadFromFile("proxies.txt", "", proxylib.ParseURL)
 	if err != nil && proxies == nil {
 		panic("failed to parse proxies")
 	}
-	fmt.Println("proxies parsed!")
+	fmt.Printf("parsed %d proxies (HTTP, HTTPS, SOCKS5, SOCKS4)\n", len(proxies))
 
 
-	/* 
-		default proxy usage example
-								     */
-	for _, p := range proxies {
-		log.Printf("connecting to %s:%s...\r\n", p.Host, p.Port)
-		conn, err := p.DialTimeout("ident.me:80", time.Second*time.Duration(10))
+	/* default proxy usage — try each damn proxy until one works */
+	tryProxy := func(p *proxylib.Proxy) bool {
+		conn, err := p.DialTimeout("ident.me:80", 10*time.Second)
 		if err != nil {
-			log.Printf("invalid proxy got, err: %s\r\n", err.Error())
-			continue
+			log.Printf("invalid proxy: %s\n", err.Error())
+			return false
 		}
 		defer conn.Close()
 
-		_, err = conn.Write([]byte("GET / HTTP/1.1\r\nHost: ident.me:80\r\nConnection: close\r\n\r\n"))
+		_, err = conn.Write([]byte("GET / HTTP/1.1\r\nHost: ident.me\r\nConnection: close\r\n\r\n"))
 		if err != nil {
-			log.Printf("failed to send request via proxy, err: %s\r\n", err.Error())
-			continue
+			log.Printf("failed to send request: %s\n", err.Error())
+			return false
 		}
 
 		var buf [4096]byte
 		n, err := conn.Read(buf[:])
 		if err != nil {
-			log.Printf("failed to read answer from server, err: %s\r\n", err.Error())
-			continue
+			log.Printf("failed to read: %s\n", err.Error())
+			return false
 		}
 		fmt.Println(string(buf[:n]))
-		break // break on first success
+		return true
+	}
+	for _, p := range proxies {
+		log.Printf("connecting via %s to %s:%s...\n", p.Protocol, p.Host, p.Port)
+		if tryProxy(p) {
+			break
+		}
 	}
 	fmt.Println("all proxies checked")
 
 
 	/*
-		proxy pool usage example
-								  */
-	var pool proxylib.Pool
-	pool.AddProxies(proxies)
-	for {
-		// return next proxy using round robin
-		// Next() is safe for concurrent threads
+		proxy pool — round-robin through these bastards
+	*/
+	pool, err := proxylib.NewPool(proxies)
+	if err != nil {
+		panic(err)
+	}
+	const maxAttempts = 100
+	for i := 0; i < maxAttempts; i++ {
 		p := pool.Next()
-		conn, err := p.DialTimeout("ident.me:80", time.Second*time.Duration(10))
+		conn, err := p.DialTimeout("ident.me:80", 10*time.Second)
 		if err != nil {
-			log.Printf("invalid proxy got, err: %s\r\n", err.Error())
+			log.Printf("invalid proxy: %s\n", err.Error())
 			continue
 		}
-		defer conn.Close()
 
-		_, err = conn.Write([]byte("GET / HTTP/1.1\r\nHost: ident.me:80\r\nConnection: close\r\n\r\n"))
+		_, err = conn.Write([]byte("GET / HTTP/1.1\r\nHost: ident.me\r\nConnection: close\r\n\r\n"))
 		if err != nil {
-			log.Printf("failed to send request via proxy, err: %s\r\n", err.Error())
+			conn.Close()
+			log.Printf("failed to send request: %s\n", err.Error())
 			continue
 		}
 
 		var buf [4096]byte
 		n, err := conn.Read(buf[:])
+		conn.Close()
 		if err != nil {
-			log.Printf("failed to read answer from server, err: %s\r\n", err.Error())
+			log.Printf("failed to read: %s\n", err.Error())
 			continue
 		}
 		fmt.Println(string(buf[:n]))
-		break // break on first success
+		break
 	}
-	fmt.Println("valid proxy found!!")
+	fmt.Println("valid proxy found!")
 }
