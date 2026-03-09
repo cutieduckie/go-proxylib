@@ -8,9 +8,14 @@ import (
 	"strings"
 )
 
-// the returned slice may contain valid proxies
-// even if an error is returned
-func LoadFromReader(r io.Reader, proto string, parser ParserFunc) ([]*Proxy, error) {
+// LoadOptions configures loading behavior.
+type LoadOptions struct {
+	// OnParseError called when a line fails to parse. Debug that shit.
+	OnParseError func(line string, err error)
+}
+
+// LoadFromReaderWithOptions loads proxies with optional callback for parse errors.
+func LoadFromReaderWithOptions(r io.Reader, proto string, parser ParserFunc, opts *LoadOptions) ([]*Proxy, error) {
 	var proxies []*Proxy
 
 	scanner := bufio.NewScanner(r)
@@ -24,6 +29,9 @@ func LoadFromReader(r io.Reader, proto string, parser ParserFunc) ([]*Proxy, err
 
 		p, err := parser(proto, line)
 		if err != nil {
+			if opts != nil && opts.OnParseError != nil {
+				opts.OnParseError(line, err)
+			}
 			continue
 		}
 
@@ -38,6 +46,12 @@ func LoadFromReader(r io.Reader, proto string, parser ParserFunc) ([]*Proxy, err
 		return nil, ErrNoProxiesFound
 	}
 	return proxies, nil
+}
+
+// LoadFromReader loads proxies. Returns what we got even on error (EOF, whatever the fuck)
+func LoadFromReader(r io.Reader, proto string, parser ParserFunc) ([]*Proxy, error) {
+	return LoadFromReaderWithOptions(r, proto, parser, nil)
+
 }
 
 func LoadFromFile(path string, proto string, parser ParserFunc) ([]*Proxy, error) {
