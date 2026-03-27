@@ -2,6 +2,7 @@ package proxylib
 
 import (
 	"encoding/binary"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -35,7 +36,8 @@ func socks4_connect(conn net.Conn, targetHost string, username string, deadline 
 	req = append(req, portBytes...)
 
 	// SOCKS4 vs SOCKS4a: domain = SOCKS4a (0.0.0.x), IP = plain SOCKS4. Simple as fuck.
-	if ip := net.ParseIP(host); ip != nil {
+	ip := net.ParseIP(host)
+	if ip != nil {
 		ip4 := ip.To4()
 		if ip4 == nil {
 			return ErrIPv6NotSupported
@@ -51,7 +53,7 @@ func socks4_connect(conn net.Conn, targetHost string, username string, deadline 
 	req = append(req, 0)
 
 	// SOCKS4a: append domain, null-terminated like a proper C string
-	if ip := net.ParseIP(host); ip == nil {
+	if ip == nil {
 		req = append(req, host...)
 		req = append(req, 0)
 	}
@@ -62,7 +64,7 @@ func socks4_connect(conn net.Conn, targetHost string, username string, deadline 
 
 	// Read response — 0x5a = success, anything else = we're fucked
 	resp := make([]byte, 8)
-	if _, err := conn.Read(resp); err != nil {
+	if _, err := io.ReadFull(conn, resp); err != nil {
 		return err
 	}
 	if resp[0] != 0 {
