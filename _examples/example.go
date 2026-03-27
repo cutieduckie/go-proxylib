@@ -62,13 +62,17 @@ func main() {
 		fmt.Println(string(buf[:n]))
 		return true
 	}
+	found := false
 	for _, p := range proxies {
 		log.Printf("connecting via %s to %s:%s...\n", p.Protocol, p.Host, p.Port)
 		if tryProxy(p) {
+			found = true
 			break
 		}
 	}
-	fmt.Println("all proxies checked")
+	if !found {
+		fmt.Println("no working proxy found")
+	}
 
 
 	/*
@@ -79,6 +83,7 @@ func main() {
 		panic(err)
 	}
 	const maxAttempts = 100
+	found = false
 	for i := 0; i < maxAttempts; i++ {
 		p := pool.Next()
 		conn, err := p.DialTimeout("ident.me:80", 10*time.Second)
@@ -102,7 +107,12 @@ func main() {
 			continue
 		}
 		fmt.Println(string(buf[:n]))
+		found = true
 		break
 	}
-	fmt.Println("valid proxy found!")
+	if found {
+		fmt.Println("valid proxy found!")
+	} else {
+		fmt.Println("no valid proxy found after", maxAttempts, "attempts")
+	}
 }
