@@ -52,7 +52,7 @@ func socks5_connect(conn net.Conn, targetHost string, username, password string,
 
 	// Read method selection — pray proxy doesn't fuck this up
 	resp := make([]byte, 2)
-	if _, err := conn.Read(resp); err != nil {
+	if _, err := io.ReadFull(conn, resp); err != nil {
 		return err
 	}
 	if resp[0] != socks5Version {
@@ -73,7 +73,7 @@ func socks5_connect(conn net.Conn, targetHost string, username, password string,
 		}
 
 		authResp := make([]byte, 2)
-		if _, err := conn.Read(authResp); err != nil {
+		if _, err := io.ReadFull(conn, authResp); err != nil {
 			return err
 		}
 		if authResp[0] != 0x01 || authResp[1] != 0x00 {
@@ -112,7 +112,7 @@ func socks5_connect(conn net.Conn, targetHost string, username, password string,
 
 	// Read CONNECT response — pray to god it succeeded
 	resp = make([]byte, 4)
-	if _, err := conn.Read(resp); err != nil {
+	if _, err := io.ReadFull(conn, resp); err != nil {
 		return err
 	}
 	if resp[0] != socks5Version || resp[1] != 0x00 {
@@ -140,6 +140,8 @@ func socks5_connect(conn net.Conn, targetHost string, username, password string,
 		if _, err := io.ReadFull(conn, skip); err != nil {
 			return err
 		}
+	default:
+		return ErrInvalidProxyResponse
 	}
 
 	return nil
